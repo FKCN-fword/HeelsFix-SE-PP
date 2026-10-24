@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-2022
+    runs-on: windows-2025
     steps:
       - name: Check out committed C++ source
         uses: actions/checkout@v4
@@ -24,7 +24,23 @@ jobs:
       - name: Set up xmake
         uses: xmake-io/github-action-setup-xmake@v1
         with:
-          xmake-version: "3.0.0"
+          xmake-version: "3.1.1"
+
+      - name: Verify Visual Studio 2026 toolset
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw 'vswhere.exe was not found; Visual Studio 2026 cannot be verified.' }
+          $vsPath = & $vswhere -latest -products '*' -version '[18.0,19.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $vsPath) { throw 'Visual Studio 2026 C++ tools were not found on this runner.' }
+          $vsVersion = & $vswhere -latest -products '*' -version '[18.0,19.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion
+          if ($LASTEXITCODE -ne 0 -or -not $vsVersion) { throw 'Could not read the Visual Studio 2026 installation version.' }
+          $toolsetFile = Join-Path $vsPath 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt'
+          if (-not (Test-Path -LiteralPath $toolsetFile)) { throw 'The Visual Studio C++ toolset version file is missing.' }
+          $toolsetVersionText = (Get-Content -LiteralPath $toolsetFile -Raw).Trim()
+          if ($toolsetVersionText -notmatch '^(\d+\.\d+\.\d+)') { throw "Unrecognized MSVC toolset version: $toolsetVersionText" }
+          if ([version]$Matches[1] -lt [version]'14.50.0') { throw "MSVC v145 (14.50+) is required to match CommonLib. Detected: $toolsetVersionText" }
+          Write-Host "Using Visual Studio $vsVersion / MSVC $toolsetVersionText at $vsPath"
 
       - name: Stage 1 — static preflight of checked-in source
         shell: pwsh
@@ -56,7 +72,7 @@ jobs:
       - name: Configure xmake against CommonLib prebuilt ABI
         shell: pwsh
         run: |
-          xmake f -m releasedbg --skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n -y
+          xmake f -m releasedbg --vs=2026 --skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n -y
           if ($LASTEXITCODE -ne 0) { throw 'xmake configure failed. No C++ target was compiled.' }
 
       - name: Stage 3 — verify configured source and options
