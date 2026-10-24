@@ -137,27 +137,30 @@ jobs:
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           if ($machine -ne 0x8664) { throw ('Expected x64 PE machine 0x8664; found 0x{0:X4}.' -f $machine) }
 
-      - name: Package native plugin (no ESP or Papyrus)
+      - name: Stage native plugin package (no ESP or Papyrus)
         shell: pwsh
         run: |
           $root = Join-Path $env:GITHUB_WORKSPACE 'dist/HeelsFixNG-NoESP-SE1597'
           $pluginDir = Join-Path $root 'SKSE/Plugins'
+          if (-not (Test-Path -LiteralPath (Join-Path $pluginDir 'HeelsFixNative.dll'))) { throw 'Cannot stage package: native DLL is missing.' }
           Copy-Item -LiteralPath 'Runtime/HeelsFixNative.ini' -Destination $pluginDir -Force
           Copy-Item -LiteralPath 'README_INSTALL_KO.txt' -Destination $root -Force
           Copy-Item -LiteralPath 'LICENSE-MIT.txt' -Destination $root -Force
           $bad = Get-ChildItem -Path $root -Recurse -File | Where-Object { $_.Extension.ToLowerInvariant() -in @('.esp','.esm','.esl','.pex') }
           if ($bad) { throw ('Forbidden plugin/Papyrus files in package: ' + (($bad | ForEach-Object FullName) -join ', ')) }
-          $zip = Join-Path $env:GITHUB_WORKSPACE 'dist/HeelsFixNG-NoESP-SE1597.zip'
-          if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-          Compress-Archive -Path (Join-Path $root '*') -DestinationPath $zip -Force
-          if (-not (Test-Path -LiteralPath $zip)) { throw 'Package archive was not created.' }
+          $required = @('SKSE/Plugins/HeelsFixNative.dll','SKSE/Plugins/HeelsFixNative.ini','README_INSTALL_KO.txt','LICENSE-MIT.txt')
+          foreach ($relative in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $root $relative))) { throw "Required package file is missing: $relative" }
+          }
           python tools/verify_source.py
-          if ($LASTEXITCODE -ne 0) { throw 'Final source static checks failed after packaging.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Final source static checks failed after package staging.' }
 
-      - name: Upload built plugin archive
+      # Upload the package directory, not a ZIP file. upload-artifact creates the
+      # downloadable ZIP itself; uploading a prebuilt ZIP here nests one ZIP in another.
+      - name: Upload install-ready plugin package
         uses: actions/upload-artifact@v4
         with:
           name: HeelsFixNG-NoESP-SE1597
-          path: dist/HeelsFixNG-NoESP-SE1597.zip
+          path: dist/HeelsFixNG-NoESP-SE1597/**
           if-no-files-found: error
           retention-days: 30
