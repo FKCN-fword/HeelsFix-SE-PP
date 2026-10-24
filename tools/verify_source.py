@@ -87,7 +87,7 @@ for key in ("npcEnabled", "npcAdvanced", "correctScaledActors", "scanInterval", 
 require(re.search(r"(?im)^\s*(?:playerEnabled|playerAdvanced|correctFirstPerson|correctThirdPerson|cameraIdleZ|cameraCombatZ|darSpell|heelRefreshMinutes|sexlab\w*)\s*=", ini) is None,
         "runtime INI exposes a forbidden player/camera/DAR/SexLab setting")
 xmake = read(ROOT / "xmake.lua")
-require('set_xmakever("3.0.0")' in xmake and 'set_version("1.1.0")' in xmake,
+require('set_xmakever("3.1.1")' in xmake and 'set_version("1.1.0")' in xmake,
         "xmake/plugin project version is incorrect")
 require('add_files("src/**.cpp")' in xmake and 'add_headerfiles("src/**.h")' in xmake,
         "xmake target must compile the checked-in C++ files")
@@ -96,12 +96,14 @@ workflow_path = ROOT / ".github" / "workflows" / "build.yml"
 builder_path = ROOT / "Build-HeelsFixNG-NoESP.ps1"
 workflow_text = read(workflow_path)
 builder_text = read(builder_path)
-expected_options = "--skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n"
+expected_options = "--vs=2026 --skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n"
 for label, text in (("GitHub Actions", workflow_text), ("local builder", builder_text)):
     config_lines = [line for line in text.splitlines() if re.search(r"\bxmake\s+f\s", line)]
     require(len(config_lines) == 1, f"{label} must contain exactly one xmake configure command")
     require(len(config_lines) == 1 and expected_options in config_lines[0],
             f"{label} xmake options differ from the expected CommonLib prebuilt ABI flags")
+require("runs-on: windows-2025" in workflow_text and "xmake-version: \"3.1.1\"" in workflow_text and "Verify Visual Studio 2026 toolset" in workflow_text,
+        "GitHub workflow must pin a runner/toolset compatible with the CommonLib prebuilt archive")
 require("Stage 1" in workflow_text and "Stage 6" in workflow_text and "InteractionStateTests" in workflow_text,
         "GitHub workflow is missing staged static verification or test gates")
 require("rustyoldsword/HeelsFixNG.git" not in builder_text,

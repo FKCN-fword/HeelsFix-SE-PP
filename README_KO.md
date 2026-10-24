@@ -34,7 +34,7 @@ GitHub 저장소에 이 폴더의 내용을 올리면 `.github/workflows/build.y
 
 각 단계가 실패하면 이후 단계와 배포 ZIP 생성을 중단합니다. GitHub Actions에서 생성된 ZIP은 해당 실행의 **Artifacts**에서 받을 수 있습니다.
 
-Windows에서 로컬로 빌드하려면 Git, Python 3.12+, xmake 3.0.0 및 MSVC Build Tools가 필요합니다. 저장소 루트에서 다음 명령을 실행합니다.
+Windows에서 로컬로 빌드하려면 Git, Python 3.12+, xmake 3.1.1+ 및 Visual Studio 2026 C++ Build Tools(MSVC 14.50 이상)가 필요합니다. CommonLibSSE-NG 라이브러리와 소비자 플러그인의 MSVC 도구 집합을 맞추지 않으면 `__std_replace_copy_2` 또는 `__std_regex_transform_primary_char` 링크 오류가 발생할 수 있습니다. 저장소 루트에서 다음 명령을 실행합니다.
 
 ```powershell
 .\Build-HeelsFixNG-NoESP.ps1
@@ -49,6 +49,11 @@ Windows에서 로컬로 빌드하려면 Git, Python 3.12+, xmake 3.0.0 및 MSVC 
 ## 설치
 
 GitHub Actions 빌드가 성공한 뒤 산출물 ZIP을 모드 매니저로 설치합니다. 또는 ZIP 내부 `SKSE/Plugins/`의 DLL과 INI를 게임의 `Data/SKSE/Plugins/` 아래에 둡니다.
+
+## MSVC 도구 집합 고정
+
+- GitHub Actions는 `windows-2025`와 Visual Studio 2026을 사용하고, xmake 구성에 `--vs=2026`을 명시합니다.
+- CI와 로컬 빌드 스크립트는 빌드 전에 MSVC 14.50 이상(v145)인지 검사합니다. 조건을 만족하지 않으면 C++ 컴파일/링크를 시작하지 않습니다.
 
 ## 검증 상태
 

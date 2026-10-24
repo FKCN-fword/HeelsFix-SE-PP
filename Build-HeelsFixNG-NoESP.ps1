@@ -14,7 +14,20 @@ function Invoke-Checked([string]$Command, [string[]]$Arguments, [string]$Failure
 python tools/verify_source.py
 if ($LASTEXITCODE -ne 0) { throw 'Source preflight failed.' }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required.' }
-if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) { throw 'xmake 3.0.0 is required.' }
+if (-not (Get-Command xmake -ErrorAction SilentlyContinue)) { throw 'xmake 3.1.1+ is required.' }
+$xmakeVersionText = (& xmake --version | Out-String)
+if ($LASTEXITCODE -ne 0 -or $xmakeVersionText -notmatch '\b(\d+\.\d+\.\d+)') { throw 'Could not determine the installed xmake version.' }
+if ([version]$Matches[1] -lt [version]'3.1.1') { throw ("xmake 3.1.1 or newer is required. Detected: {0}" -f $Matches[1]) }
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+if (-not (Test-Path -LiteralPath $vswhere)) { throw 'vswhere.exe was not found; Visual Studio 2026 C++ tools are required.' }
+$vsPath = & $vswhere -latest -products '*' -version '[18.0,19.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if ($LASTEXITCODE -ne 0 -or -not $vsPath) { throw 'Visual Studio 2026 C++ tools were not found; build with the same toolset as CommonLibSSE-NG.' }
+$toolsetFile = Join-Path $vsPath 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt'
+if (-not (Test-Path -LiteralPath $toolsetFile)) { throw 'The Visual Studio C++ toolset version file is missing.' }
+$toolsetVersionText = (Get-Content -LiteralPath $toolsetFile -Raw).Trim()
+if ($toolsetVersionText -notmatch '^(\d+\.\d+\.\d+)') { throw ("Unrecognized MSVC toolset version: {0}" -f $toolsetVersionText) }
+if ([version]$Matches[1] -lt [version]'14.50.0') { throw ("MSVC v145 (14.50+) is required to match the current CommonLib library. Detected: {0}" -f $Matches[1]) }
+Write-Host ("Using MSVC toolset {0} from {1}" -f $toolsetVersionText, $vsPath)
 
 New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot 'lib') | Out-Null
 $commonlib = Join-Path $PSScriptRoot 'lib\CommonLibSSE-NG'
@@ -29,7 +42,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $menuApi 'SKSEMenuFramework.h'))) {
 }
 
 # Keep these CommonLib prebuilt-ABI flags aligned with .github/workflows/build.yml.
-xmake f -m releasedbg --skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n -y
+xmake f -m releasedbg --vs=2026 --skyrim_se=y --skyrim_ae=y --skyrim_vr=y --rex_json=n --rex_toml=n -y
 if ($LASTEXITCODE -ne 0) { throw 'xmake configuration failed.' }
 python tools/verify_source.py
 if ($LASTEXITCODE -ne 0) { throw 'Source preflight failed after xmake configure.' }

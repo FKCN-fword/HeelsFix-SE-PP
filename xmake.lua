@@ -1,4 +1,4 @@
-set_xmakever("3.0.0")
+set_xmakever("3.1.1")
 
 includes("lib/CommonLibSSE-NG")
 

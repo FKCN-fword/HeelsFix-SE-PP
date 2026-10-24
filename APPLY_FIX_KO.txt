@@ -1,0 +1,6 @@
+적용 대상: 기존 HeelsFixNG C++ 프로젝트
+
+압축 해제 후 파일 경로를 유지한 채 기존 프로젝트 루트에 덮어쓰십시오.
+수정 내용: GitHub Actions를 Windows Server 2025 / Visual Studio 2026(MSVC v145)로 고정, xmake 3.1.1 및 --vs=2026 지정, 링크 전에 MSVC 14.50 이상인지 검사, 정적 검사 규칙과 README 갱신.
+
+이 오버레이는 빌드 설정을 수정합니다. DLL 빌드 성공을 대신 증명하지는 않습니다.
