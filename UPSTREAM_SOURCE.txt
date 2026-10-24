@@ -1,0 +1,7 @@
+Upstream project: https://github.com/rustyoldsword/HeelsFixNG
+Pinned source revision used for this fork: 08d72cf75b6914c92223215ba387257e5149448d
+Upstream license: MIT (LICENSE-MIT.txt)
+
+This source tree is based on that upstream C++ implementation. The forked source applies the no-plugin / NPC-only profile, removes legacy ESP/form spell lookups and user-configurable player/camera/DAR controls, adds SKSE Menu Framework NPC/settings pages, and contains the RaceMenu NiTransform v2 adapter used for RaceMenu 0.4.11. C++ files are committed directly in src/; the build does not patch a fresh clone of upstream source.
+
+The original upstream revision and this fork's source changes should be reviewed together before redistribution. A successful compilation and in-game test are not claimed by this metadata file.
