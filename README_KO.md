@@ -30,9 +30,9 @@ GitHub 저장소에 이 폴더의 내용을 올리면 `.github/workflows/build.y
 4. `InteractionStateTests` 빌드 및 실행
 5. `HeelsFixNative.dll` 빌드
 6. 최종 정적 검사 및 ESP/Papyrus 산출물 차단
-7. `HeelsFixNG-NoESP-SE1597.zip` 업로드
+7. 설치 파일을 `dist/HeelsFixNG-NoESP-SE1597/`에 구성하고 해당 디렉터리를 **Artifacts**로 업로드합니다.
 
-각 단계가 실패하면 이후 단계와 배포 ZIP 생성을 중단합니다. GitHub Actions에서 생성된 ZIP은 해당 실행의 **Artifacts**에서 받을 수 있습니다.
+각 단계가 실패하면 이후 단계와 배포 산출물 업로드를 중단합니다. GitHub Actions의 `upload-artifact`가 설치 파일을 ZIP으로 묶으므로, 이미 압축한 ZIP 파일을 다시 업로드하지 않습니다. 해당 실행의 **Artifacts**에서 받은 ZIP을 바로 모드 매니저로 설치할 수 있습니다. 로컬 빌드 스크립트는 `dist/HeelsFixNG-NoESP-SE1597.zip`을 한 번 생성합니다.
 
 Windows에서 로컬로 빌드하려면 Git, Python 3.12+, xmake 3.1.1+ 및 Visual Studio 2026 C++ Build Tools(MSVC 14.50 이상)가 필요합니다. CommonLibSSE-NG 라이브러리와 소비자 플러그인의 MSVC 도구 집합을 맞추지 않으면 `__std_replace_copy_2` 또는 `__std_regex_transform_primary_char` 링크 오류가 발생할 수 있습니다. 저장소 루트에서 다음 명령을 실행합니다.
 
