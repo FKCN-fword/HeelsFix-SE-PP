@@ -383,7 +383,7 @@ namespace HFN
         const bool interactionActive = posture != Posture::Free || record.interaction.furniture != 0;
         const auto offsetSample = record.heelOffsetTracker.Update(rawHeelPresent, rawHeel,
             interactionActive, now, kHeelOffsetGrace, kOffsetPresenceDebounce);
-        const float heel = offsetSample.effectiveHeel;
+        float heel = offsetSample.effectiveHeel;
         record.raceMenuRootOffsetPresent = offsetSample.effectivePresence;
 
         if (offsetSample.rawPresenceChanged && (actor->IsPlayerRef() || s.debugLog)) {

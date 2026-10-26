@@ -35,6 +35,15 @@ menu = source_text["Menu.cpp"]
 
 # Catch the exact syntax defect from the prior package and similar escaped member access.
 require(not re.search(r"\b[A-Za-z_]\w*\\\.[A-Za-z_]", all_cpp_text), "invalid backslash before C++ member access (e.g. s\\.npcEnabled)")
+# Regression guard for MSVC C3892: the cached heel may be changed to the 0.1f
+# scale-only sentinel below, so its local declaration must remain mutable. This is a
+# targeted guard, not a substitute for compiling the complete native plugin.
+heel_decl = re.search(r"(?m)^\s*(?P<const>const\s+)?float\s+heel\s*=\s*offsetSample\.effectiveHeel\s*;\s*$", engine)
+require(heel_decl is not None, "effective heel local declaration missing; update this check with any intentional refactor")
+require(heel_decl is None or heel_decl.group("const") is None,
+        "heel must be mutable: UpdateActor assigns 0.1f when scaled-no-heel correction is active (MSVC C3892 regression)")
+require(re.search(r"(?m)^\s*if\s*\(!wearing\)\s*heel\s*=\s*0\.1f\s*;\s*$", engine) is not None,
+        "scaled-no-heel sentinel assignment changed; re-review mutable heel declaration")
 
 # No legacy ESP/papyrus/scene integration in the native source.
 for pat in (r"HeelsFix\.esp", r"_heelsSpell", r"_legacyAbility", r"darSpell", r"LegacyFormsAvailable", r"SexLab", r"sexlab", r"P\+"):
