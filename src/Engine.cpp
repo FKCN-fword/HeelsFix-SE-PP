@@ -16,6 +16,21 @@ namespace HFN
         constexpr auto kRightHip = "CME R Hip";
         constexpr auto kSpine = "CME Spine [Spn0]";
         constexpr float kRadToDeg = 57.29577951308232f;
+        constexpr float kSlightLeanMultiplier = 1.5f; // 33% smaller angle; reference specifies "slight" but no numeric factor.
+        constexpr auto kHeelOffsetGrace = std::chrono::milliseconds(1500);
+        constexpr auto kOffsetPresenceDebounce = std::chrono::milliseconds(500);
+
+        const char* SpecialRuleName(Rules::SpecialFurnitureRule rule)
+        {
+            using enum Rules::SpecialFurnitureRule;
+            switch (rule) {
+            case NoCorrection: return "wall-no-correction";
+            case LeanForward: return "rail-lean-forward";
+            case LeanForwardSlight: return "cooking-slight-lean";
+            case InvisibleChair: return "invisible-chair";
+            default: return "default";
+            }
+        }
 
         bool HasKeyword(RE::TESForm* form, std::string_view id)
         {
@@ -30,6 +45,20 @@ namespace HFN
 
         float SafeAsin(float value) { return std::asin(std::clamp(value, -1.0f, 1.0f)) * kRadToDeg; }
         std::size_t Index(FurnitureClass value) { return static_cast<std::size_t>(value); }
+
+        void LogTransformCheck(RE::Actor* actor, bool female, bool fallbackActive)
+        {
+            if (!actor || (!actor->IsPlayerRef() && !Settings::Get().debugLog)) return;
+            const bool rmRootStored = Skee::HasPosition(actor, false, female, kRoot, "internal");
+            const float rmRootZ = rmRootStored ? Skee::Position(actor, false, female, kRoot, "internal").z : 0.0f;
+            const bool hfnRootStored = Skee::HasPosition(actor, false, female, kRoot, kKey);
+            const float hfnRootZ = hfnRootStored ? Skee::Position(actor, false, female, kRoot, kKey).z : 0.0f;
+            const bool hfnSpineRotationStored = Skee::HasRotation(actor, false, female, kSpine, kKey);
+            const auto* rootNode = actor->GetNodeByName(kRoot);
+            const float rootLocalZ = rootNode ? rootNode->local.translate.z : 0.0f;
+            logger::info("Actor {:08X} transform-check: RM_internal_present={} RM_internal_z={:.3f} HFN_root_present={} HFN_root_z={:.3f} HFN_spine_rotation_present={} cached_root_fallback={} NPC_root_local_z={:.3f}",
+                actor->GetFormID(), rmRootStored, rmRootZ, hfnRootStored, hfnRootZ, hfnSpineRotationStored, fallbackActive, rootLocalZ);
+        }
 
         // ActorState sits at 0xB8 on SE but 0xC0 on AE 1.6.629+. Calling the inherited
         // IsSwimming()/GetSitSleepState() on Actor uses the SE offset and reads garbage on AE.
@@ -121,14 +150,41 @@ namespace HFN
         if (!advanced) return { A_Root, FurnitureClass::Ground };
 
         {
-            if (base->GetFormID() == 0x000F2FF5 || AnyKeyword(base, { "isPickaxeWall", "isHammerWall", "isStandingChisel", "isWalkThroughWall", "WoodPickUp", "StonePickUp", "BucketPour" }))
+            // The original Heels Fix has dedicated marker rules. Keep them ahead of generic
+            // TESFurniture fallback so wall markers never become chairs and invisible chairs
+            // receive the same sitting correction as regular chairs.
+            const auto specialRule = Rules::ClassifySpecialFurniture({
+                HasKeyword(base, "WallLeanMarker"),
+                HasKeyword(base, "RailLeanMarker"),
+                Rules::IsVanillaInvisibleChair(base->GetFormID()),
+                HasKeyword(base, "isCraftingOven"),
+                HasKeyword(base, "CraftingCookpot"),
+                HasKeyword(base, "isSmelter")
+            });
+            switch (specialRule) {
+            case Rules::SpecialFurnitureRule::NoCorrection:
+                return { A_None, FurnitureClass::Ground };
+            case Rules::SpecialFurnitureRule::LeanForward:
+                return { A_Lean, FurnitureClass::Counter };
+            case Rules::SpecialFurnitureRule::LeanForwardSlight:
+                return { A_LeanSlight, HasKeyword(base, "isCraftingOven") ? FurnitureClass::Table : FurnitureClass::Counter };
+            case Rules::SpecialFurnitureRule::InvisibleChair:
+                return { A_Sitting, FurnitureClass::Chair };
+            case Rules::SpecialFurnitureRule::Default:
+                break;
+            }
+
+            // WallLeanMarker is Skyrim.esm FURN:00052FF5. The former F2FF5 literal was a
+            // different FormID and did not identify the wall marker. Keep the explicit ID
+            // as a fallback for plugin records with missing/unresolved keyword metadata.
+            if (base->GetFormID() == 0x00052FF5 || AnyKeyword(base, { "isPickaxeWall", "isHammerWall", "isStandingChisel", "isWalkThroughWall", "WoodPickUp", "StonePickUp", "BucketPour" }))
                 return { A_None, FurnitureClass::Ground };
             if (AnyKeyword(base, { "isGreybeardMeditate", "isSitCrossLegged", "isLayDown", "isSitLedge", "isIdlePrayCrouched" }))
                 return { A_Root, FurnitureClass::Ground };
-            if (AnyKeyword(base, { "isLeanTable", "isPickaxeFloor", "isPickaxeTable", "isHammerTable", "isAlchemy", "isEnchanting", "isGrainMill", "isCraftingOven", "isBlacksmithAnvil", "isBlacksmithWorkbench", "isBlacksmithForge", "isWritingTable", "ActivatorLever", "BucketFill" }))
+            if (AnyKeyword(base, { "isLeanTable", "isPickaxeFloor", "isPickaxeTable", "isHammerTable", "isAlchemy", "isEnchanting", "isGrainMill", "isBlacksmithAnvil", "isBlacksmithWorkbench", "isBlacksmithForge", "isWritingTable", "ActivatorLever", "BucketFill" }))
                 return { A_Lean, FurnitureClass::Table };
             if (HasKeyword(base, "FurnitureWoodChoppingBlock")) return { A_Chop, FurnitureClass::Table };
-            if (base->GetFormID() == 0x00070EA1 || AnyKeyword(base, { "FurnitureCounterLeanMarker", "FurnitureResourceObjectSawmill", "CraftingCookpot", "isPullChain", "isSmelter" }))
+            if (base->GetFormID() == 0x00070EA1 || AnyKeyword(base, { "FurnitureCounterLeanMarker", "FurnitureResourceObjectSawmill", "isPullChain" }))
                 return { A_Lean, FurnitureClass::Counter };
             if (HasKeyword(base, "isWritingChair")) return { A_Sitting, FurnitureClass::Table };
             if (HasKeyword(base, "isJarlChair")) return { A_Sitting, FurnitureClass::Throne };
@@ -142,7 +198,8 @@ namespace HFN
         return base->As<RE::TESFurniture>() ? std::pair{ A_Sitting, FurnitureClass::Chair } : std::pair{ A_None, FurnitureClass::Ground };
     }
 
-    void Engine::Apply(RE::Actor* actor, Record& record, Adjustment adjustment, FurnitureClass furniture, float heel, float trueScale)
+    void Engine::Apply(RE::Actor* actor, Record& record, Adjustment adjustment, FurnitureClass furniture,
+        float heel, float trueScale, bool raceMenuRootOffsetPresent)
     {
         const auto oldAdjustment = record.adjustment;
         const auto oldFurniture = record.furniture;
@@ -151,12 +208,27 @@ namespace HFN
         record.furniture = furniture;
         record.heelHeight = heel;
         record.trueScale = trueScale;
+        record.raceMenuRootOffsetPresent = raceMenuRootOffsetPresent;
         if (actor->IsPlayerRef() || Settings::Get().debugLog) {
             logger::info("Actor {:08X}: adjustment 0x{:X}/{} -> 0x{:X}/{}, heel {:.3f}, scale {:.3f}",
                 actor->GetFormID(), static_cast<unsigned>(oldAdjustment), static_cast<unsigned>(oldFurniture),
                 static_cast<unsigned>(adjustment), static_cast<unsigned>(furniture), heel, trueScale);
         }
+        // A_Lean and NoCorrection intentionally preserve the RaceMenu heel elevation. If
+        // RaceMenu temporarily loses NPC/internal during a furniture animation, provide a
+        // namespaced fallback root offset until the original override returns. Root-corrected
+        // poses instead use effectiveRootHeel=0 above, avoiding a second -heel subtraction.
+        if (!raceMenuRootOffsetPresent && heel > 0.01f && !(adjustment & A_Root)) {
+            Skee::SetPosition(actor, false, record.female, kRoot, kKey, 0, 0, heel);
+            Skee::Update(actor, false, record.female, kRoot);
+            record.heelRootFallbackActive = true;
+        } else {
+            record.heelRootFallbackActive = false;
+        }
         if (adjustment == A_None) {
+            // No pose transform is written for wall-lean markers, but refresh the existing
+            // RaceMenu root override after the animation/furniture transition.
+            if (raceMenuRootOffsetPresent) Skee::Update(actor, false, record.female, kRoot);
             if (actor->IsPlayerRef()) {
                 const auto& s = Settings::Get();
                 if (s.correctFirstPerson) {
@@ -165,6 +237,7 @@ namespace HFN
                 }
                 SetCamera(heel);
             }
+            LogTransformCheck(actor, record.female, record.heelRootFallbackActive);
             return;
         }
 
@@ -175,7 +248,10 @@ namespace HFN
         constexpr std::array handHeight{ -1.0f, -1.0f, -1.0f, -1.0f, 80.0f, 65.0f, -1.0f, -1.0f, 50.0f, 58.0f };
         constexpr std::array footHeight{ -1.0f, 0.0f, 0.0f, 94.0f, 0.0f, 0.0f, -1.0f, -1.0f, 0.0f, 0.0f };
         const auto i = Index(furniture);
-        float rootOffset = rootHeight[i] >= 0.0f ? heel * actorScale - (1.0f - actorScale) * rootHeight[i] : 0.0f;
+        // If RaceMenu's NPC/internal offset disappeared during an animation switch, do not
+        // subtract a heel offset that is no longer present. Scale-related offsets still apply.
+        const float effectiveRootHeel = raceMenuRootOffsetPresent ? heel : 0.0f;
+        float rootOffset = rootHeight[i] >= 0.0f ? effectiveRootHeel * actorScale - (1.0f - actorScale) * rootHeight[i] : 0.0f;
         float kneeOffset = 0.0f;
         float thighAngle = 0.0f;
         if (footHeight[i] >= 0.0f) {
@@ -190,7 +266,9 @@ namespace HFN
         float leanAngle = 0.0f;
         float handAngle = 0.0f;
         if (handHeight[i] > 0.0f) {
-            leanAngle = SafeAsin((handHeight[i] * (1.0f - actorScale) - heel * actorScale) / (s.leanForwardFactor * actorScale));
+            const float slightLeanMultiplier = (static_cast<unsigned>(adjustment) & 0x80u) ? kSlightLeanMultiplier : 1.0f;
+            leanAngle = SafeAsin((handHeight[i] * (1.0f - actorScale) - heel * actorScale) /
+                (s.leanForwardFactor * actorScale * slightLeanMultiplier));
             handAngle = SafeAsin(((handHeight[i] - rootHeight[i]) * (1.0f - actorScale)) / (s.leanBackFactor * actorScale));
         } else if (kneeOffset > 1.0f) {
             handAngle = SafeAsin((kneeOffset - 1.0f) / (s.leanBackFactor * actorScale));
@@ -209,6 +287,13 @@ namespace HFN
         else if (adjustment & A_RHip) Skee::Update(actor, false, female, kRightHip);
         if (adjustment & A_Spine) Skee::Update(actor, false, female, kSpine);
         if (adjustment & A_Body) Skee::Update(actor, false, female, kBody);
+
+        // The lean-only path does not write NPC/root itself. Refresh the existing RaceMenu
+        // root override once on each state transition so an animation's root update cannot
+        // leave the heel lift stale. This is event/state-driven, not a per-frame refresh.
+        if (raceMenuRootOffsetPresent) Skee::Update(actor, false, female, kRoot);
+
+        LogTransformCheck(actor, female, record.heelRootFallbackActive);
 
         if (actor->IsPlayerRef()) {
             float cameraOffset = heel;
@@ -238,7 +323,10 @@ namespace HFN
             RestoreCamera();
         }
         if (removed && (actor->IsPlayerRef() || Settings::Get().debugLog)) logger::info("Actor {:08X}: removed HeelsFix transforms", actor->GetFormID());
-        if (record) record->adjustment = A_None;
+        if (record) {
+            record->adjustment = A_None;
+            record->heelRootFallbackActive = false;
+        }
     }
 
     void Engine::UpdateActor(RE::Actor* actor)
@@ -278,8 +366,33 @@ namespace HFN
             return;
         }
 
-        float heel = Skee::HeelHeight(actor, record.female);
-        if (!std::isfinite(heel)) { Clear(actor, &record); record.heelHeight = -1.0f; return; }
+        const auto sitSleep = SitSleep(actor);
+        const auto posture = record.interaction.Observe(sitSleep);
+        auto* eventFurniture = record.interaction.furniture ? RE::TESForm::LookupByID<RE::TESObjectREFR>(record.interaction.furniture) : nullptr;
+        const auto occupied = actor->GetOccupiedFurniture().get();
+        auto* ref = occupied ? occupied.get() : eventFurniture;
+        auto* base = ref ? ref->GetBaseObject() : nullptr;
+
+        const bool rawRootOffsetStored = Skee::HasPosition(actor, false, record.female, kRoot, "internal");
+        float rawHeel = rawRootOffsetStored ? Skee::HeelHeight(actor, record.female) : 0.0f;
+        if (!std::isfinite(rawHeel)) rawHeel = 0.0f;
+        // A stored transform with z=0 is not a valid high-heel lift. Track a positive height,
+        // not merely the existence of a RaceMenu override entry.
+        const bool rawHeelPresent = rawRootOffsetStored && rawHeel > 0.01f;
+        const auto now = Clock::now();
+        const bool interactionActive = posture != Posture::Free || record.interaction.furniture != 0;
+        const auto offsetSample = record.heelOffsetTracker.Update(rawHeelPresent, rawHeel,
+            interactionActive, now, kHeelOffsetGrace, kOffsetPresenceDebounce);
+        const float heel = offsetSample.effectiveHeel;
+        record.raceMenuRootOffsetPresent = offsetSample.effectivePresence;
+
+        if (offsetSample.rawPresenceChanged && (actor->IsPlayerRef() || s.debugLog)) {
+            logger::info("Actor {:08X} RaceMenu heel-offset presence changed: rawOverrideStored={} rawHeelPresent={} rawHeel={:.3f} effectiveHeel={:.3f} cached={} stablePresent={} effectivePresent={} sit={} furnitureRef={:08X} furnitureBase={:08X} '{}'",
+                actor->GetFormID(), rawRootOffsetStored, rawHeelPresent, rawHeel, heel, offsetSample.usingCachedHeel,
+                offsetSample.stablePresence, record.raceMenuRootOffsetPresent, sitSleep, ref ? ref->GetFormID() : 0,
+                base ? base->GetFormID() : 0, base ? base->GetName() : "");
+        }
+
         const float scale = TrueScale(actor);
         const bool advanced = actor->IsPlayerRef() ? s.playerAdvanced : s.npcAdvanced;
         const bool scaledNoHeel = advanced && s.correctScaledNoHeel && std::abs(scale - 1.0f) > s.scalingDeviation;
@@ -292,22 +405,25 @@ namespace HFN
         }
         if (!wearing) heel = 0.1f;
 
-        const auto sitSleep = SitSleep(actor);
-        const auto posture = record.interaction.Observe(sitSleep);
-        auto* eventFurniture = record.interaction.furniture ? RE::TESForm::LookupByID<RE::TESObjectREFR>(record.interaction.furniture) : nullptr;
         const auto [adjustment, furniture] = Categorize(actor, advanced, posture, eventFurniture);
         if (record.adjustment != adjustment || record.furniture != furniture || std::abs(record.heelHeight - heel) > 0.001f ||
-            std::abs(record.trueScale - scale) > 0.001f) {
+            std::abs(record.trueScale - scale) > 0.001f || record.raceMenuRootOffsetPresent != record.appliedRaceMenuRootOffsetPresent) {
             if (actor->IsPlayerRef() || s.debugLog) {
-                const auto occupied = actor->GetOccupiedFurniture().get();
-                auto* ref = occupied ? occupied.get() : eventFurniture;
-                auto* base = ref ? ref->GetBaseObject() : nullptr;
-                logger::info("Actor {:08X} state: swim {}, mounted {}, sit {}, furniture {:08X}, base {:08X} '{}', advanced {}",
-                    actor->GetFormID(), Swimming(actor), Mounted(actor), sitSleep,
-                    ref ? ref->GetFormID() : 0, base ? base->GetFormID() : 0, base ? base->GetName() : "", advanced);
+                const auto specialRule = base ? Rules::ClassifySpecialFurniture({
+                    HasKeyword(base, "WallLeanMarker"), HasKeyword(base, "RailLeanMarker"),
+                    Rules::IsVanillaInvisibleChair(base->GetFormID()), HasKeyword(base, "isCraftingOven"),
+                    HasKeyword(base, "CraftingCookpot"), HasKeyword(base, "isSmelter") }) : Rules::SpecialFurnitureRule::Default;
+                logger::info("Actor {:08X} state: swim={} mounted={} sit={} posture={} furnitureRef={:08X} base={:08X} '{}' advanced={} rule={} rawOverrideStored={} rawHeelPresent={} rawHeel={:.3f} effectiveHeel={:.3f} cached={} stableRootPresent={} effectiveRootPresent={}",
+                    actor->GetFormID(), Swimming(actor), Mounted(actor), sitSleep, static_cast<unsigned>(posture),
+                    ref ? ref->GetFormID() : 0, base ? base->GetFormID() : 0, base ? base->GetName() : "", advanced,
+                    SpecialRuleName(specialRule), rawRootOffsetStored, rawHeelPresent, rawHeel, heel, offsetSample.usingCachedHeel,
+                    offsetSample.stablePresence, record.raceMenuRootOffsetPresent);
             }
-            Apply(actor, record, adjustment, furniture, heel, scale);
+            Apply(actor, record, adjustment, furniture, heel, scale, record.raceMenuRootOffsetPresent);
         }
+        // Keep track of what Apply actually used, separately from the raw query which can be
+        // transient during furniture-animation swaps.
+        record.appliedRaceMenuRootOffsetPresent = record.raceMenuRootOffsetPresent;
 
         if (s.heelRefreshMinutes > 0.0f && marker && Clock::now() - record.lastRefresh >= std::chrono::duration<float>(s.heelRefreshMinutes * 60.0f)) {
             CycleFootwear(actor);
@@ -420,8 +536,16 @@ namespace HFN
                 if (entering) record.interaction.Enter(furnitureID);
                 else record.interaction.Exit(furnitureID);
                 record.heelHeight = -1.0f; // force re-evaluation on the next tick
-                if (target->IsPlayerRef() || Settings::Get().debugLog)
-                    logger::info("Actor {:08X}: furniture {} event, reference {:08X}", id, entering ? "enter" : "exit", furnitureID);
+                if (target->IsPlayerRef() || Settings::Get().debugLog) {
+                    auto* eventRef = furnitureID ? RE::TESForm::LookupByID<RE::TESObjectREFR>(furnitureID) : nullptr;
+                    auto* base = eventRef ? eventRef->GetBaseObject() : nullptr;
+                    logger::info("Actor {:08X}: furniture {} event, reference={:08X} base={:08X} '{}' typeFurniture={} keywords[WallLeanMarker={},RailLeanMarker={},FurnitureSpecial={},isSitLedge={},isCraftingOven={},CraftingCookpot={},isSmelter={}]",
+                        id, entering ? "enter" : "exit", furnitureID, base ? base->GetFormID() : 0,
+                        base ? base->GetName() : "", base && base->As<RE::TESFurniture>(),
+                        HasKeyword(base, "WallLeanMarker"), HasKeyword(base, "RailLeanMarker"),
+                        HasKeyword(base, "FurnitureSpecial"), HasKeyword(base, "isSitLedge"),
+                        HasKeyword(base, "isCraftingOven"), HasKeyword(base, "CraftingCookpot"), HasKeyword(base, "isSmelter"));
+                }
             }
             QueueTick();
         });

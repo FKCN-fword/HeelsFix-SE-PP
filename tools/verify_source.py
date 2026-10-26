@@ -20,7 +20,7 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 required_sources = [
-    "Engine.cpp", "Engine.h", "InteractionState.h", "Menu.cpp", "Menu.h",
+    "Engine.cpp", "Engine.h", "FurnitureRules.h", "InteractionState.h", "Menu.cpp", "Menu.h",
     "PCH.h", "Settings.cpp", "Settings.h", "Skee.cpp", "Skee.h", "SkeeAPI.h", "main.cpp",
 ]
 source_text: dict[str, str] = {name: read(SRC / name) for name in required_sources}
@@ -78,6 +78,21 @@ for label in ("Enable NPC correction", "Advanced NPC correction", "Thigh factor"
               "Lean forward factor", "Lean back factor", "Scaling deviation", "Reload INI", "Reset defaults"):
     require(label in menu, f"required in-game menu control missing: {label}")
 require(not re.search(r'AddSectionItem\("(?:Player|Camera|SexLab)', menu, re.I), "forbidden player/camera/SexLab menu page found")
+
+
+# Source-reference regressions: marker-specific handling and diagnostic traceability.
+rules = read(SRC / "FurnitureRules.h")
+require("WallLeanMarker" in engine and "RailLeanMarker" in engine, "wall/rail marker handling missing")
+require("0x00052FF5" in engine and "0x000F2FF5" not in engine, "WallLeanMarker FURN FormID must be 00052FF5, not the mistyped F2FF5")
+require("A_LeanSlight" in engine_h and "kSlightLeanMultiplier" in engine, "slight-lean variant missing for cooking stations")
+require("IsVanillaInvisibleChair" in rules and "0x0006411B" in rules and "0x00037A47" in rules, "vanilla invisible-chair markers are not explicitly classified")
+require("RaceMenu heel-offset presence changed" in engine and "transform-check" in engine, "heel transform loss/application result diagnostics missing")
+require("HeelOffsetTracker" in rules and "kOffsetPresenceDebounce" in engine, "single-scan heel-offset loss debounce missing")
+require("effectivePresence = rawPresent || _stablePresent" in rules, "a returning RaceMenu offset must disable the HFN fallback immediately")
+require("cacheWithinGrace" not in engine and "lastValidHeelHeight" not in engine, "stale heel-cache variables remain after tracker refactor")
+require("single missing poll during furniture use preserves heel height" in read(ROOT / "tests" / "InteractionStateTests.cpp"), "heel-offset transient-loss regression test missing")
+require("returning RaceMenu offset disables HFN fallback immediately" in read(ROOT / "tests" / "InteractionStateTests.cpp"), "RaceMenu-return/fallback overlap regression test missing")
+require("rawHeelPresent" in engine and "rawOverrideStored" in engine and "furnitureBase={:08X}" in engine, "log does not expose raw heel presence and base furniture FormID")
 
 # Runtime and build configuration.
 ini = read(ROOT / "Runtime" / "HeelsFixNative.ini")

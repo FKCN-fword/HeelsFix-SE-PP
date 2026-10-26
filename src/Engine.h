@@ -1,5 +1,6 @@
 #pragma once
 #include "InteractionState.h"
+#include "FurnitureRules.h"
 
 namespace HFN
 {
@@ -10,7 +11,9 @@ namespace HFN
         A_Sitting = A_Root | A_Pelvis | A_Hand,
         A_Kneel = A_Root | A_Hip,
         A_Spine = A_Lean | A_Hand,
-        A_Chop = A_Root | A_Body | A_Lean
+        A_Chop = A_Root | A_Body | A_Lean,
+        // High bit tags the smaller forward-lean variant while preserving A_Lean tests.
+        A_LeanSlight = A_Lean | 0x80
     };
 
     struct ActorInfo
@@ -47,6 +50,10 @@ namespace HFN
             Adjustment adjustment{ A_None };
             FurnitureClass furniture{ FurnitureClass::None };
             std::chrono::steady_clock::time_point lastRefresh{};
+            bool raceMenuRootOffsetPresent{};       // debounced/persisted state used by Apply
+            Rules::HeelOffsetTracker heelOffsetTracker;
+            bool appliedRaceMenuRootOffsetPresent{};
+            bool heelRootFallbackActive{};
             bool female{};
             bool initialized{};
             InteractionState interaction;
@@ -56,7 +63,8 @@ namespace HFN
         void QueueTick();
         void Tick();
         void UpdateActor(RE::Actor* actor);
-        void Apply(RE::Actor* actor, Record& record, Adjustment adjustment, FurnitureClass furniture, float heel, float scale);
+        void Apply(RE::Actor* actor, Record& record, Adjustment adjustment, FurnitureClass furniture,
+            float heel, float scale, bool raceMenuRootOffsetPresent);
         void Clear(RE::Actor* actor, Record* record);
         std::pair<Adjustment, FurnitureClass> Categorize(RE::Actor* actor, bool advanced, Posture posture, RE::TESObjectREFR* eventFurniture) const;
         float TrueScale(RE::Actor* actor) const;
